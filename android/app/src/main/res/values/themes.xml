@@ -1,6 +1,0 @@
-<resources>
-    <style name="Theme.PtitsArtistes" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">#6D5AE6</item>
-        <item name="android:windowBackground">#FFF9F4</item>
-    </style>
-</resources>

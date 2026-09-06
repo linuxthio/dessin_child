@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">P\'tits Artistes</string>
-    <style name="Theme.PtitsArtistes" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:statusBarColor">#6D5AE6</item>
-        <item name="android:windowBackground">#FFF9F4</item>
-    </style>
-</resources>
