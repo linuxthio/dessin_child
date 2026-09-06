@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Ton code PIN{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto text-center">
+    {% if enfant.avatar %}
+        <img src="{{ enfant.avatar.url }}" alt="{{ enfant.prenom }}" class="w-24 h-24 rounded-full object-cover mx-auto mb-4 border-4 border-amber-200">
+    {% else %}
+        <div class="w-24 h-24 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-3xl font-fun font-extrabold mx-auto mb-4 border-4 border-amber-200">
+            {{ enfant.prenom|first|upper }}
+        </div>
+    {% endif %}
+    <h1 class="font-fun text-3xl font-extrabold text-amber-500 mb-1">Salut {{ enfant.prenom }} !</h1>
+    <p class="text-gray-500 mb-6">Entre ton code secret à 4 chiffres 🔑</p>
+
+    <form method="post" action="{% url 'gallery:login_enfant_pin' %}" class="space-y-6">
+        {% csrf_token %}
+        {{ form.enfant_id }}
+        {{ form.pin_code }}
+        {% for error in form.pin_code.errors %}<p class="text-sm text-red-600">{{ error }}</p>{% endfor %}
+        <button type="submit" class="w-full py-4 rounded-2xl bg-amber-400 hover:bg-amber-500 text-white font-fun text-xl font-bold shadow-lg">
+            C'est parti ! 🚀
+        </button>
+    </form>
+    <a href="{% url 'gallery:login_enfant' %}" class="block mt-6 text-sm text-gray-400 hover:underline">← Ce n'est pas moi</a>
+</div>
+{% endblock %}

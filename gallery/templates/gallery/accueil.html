@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="text-center py-12">
+    <h1 class="font-fun text-4xl sm:text-5xl font-extrabold text-indigo-700 mb-4">
+        Toute la créativité de vos enfants, au même endroit ✨
+    </h1>
+    <p class="text-lg text-gray-600 max-w-2xl mx-auto mb-10">
+        Archivez, retrouvez et faites revivre les dessins de vos enfants dans une
+        galerie chaleureuse, pensée pour les parents et pour les artistes en herbe.
+    </p>
+    <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <a href="{% url 'gallery:login_enfant' %}"
+           class="w-full sm:w-auto px-8 py-4 rounded-2xl bg-amber-400 hover:bg-amber-500 text-white font-fun text-xl font-bold shadow-lg transition">
+            👧🧒 Je suis un enfant
+        </a>
+        <a href="{% url 'gallery:login_parent' %}"
+           class="w-full sm:w-auto px-8 py-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-fun text-xl font-bold shadow-lg transition">
+            👨‍👩‍👧 Je suis un parent
+        </a>
+    </div>
+</div>
+
+<div class="grid sm:grid-cols-3 gap-6 mt-8">
+    <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 text-center">
+        <div class="text-4xl mb-3">🖼️</div>
+        <h3 class="font-fun text-xl font-bold mb-2">Une galerie pour chaque enfant</h3>
+        <p class="text-gray-600 text-sm">Chaque profil enfant a sa propre collection de dessins.</p>
+    </div>
+    <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 text-center">
+        <div class="text-4xl mb-3">🔐</div>
+        <h3 class="font-fun text-xl font-bold mb-2">Connexion enfant par PIN</h3>
+        <p class="text-gray-600 text-sm">Un code à 4 chiffres généré automatiquement, simple et sécurisé.</p>
+    </div>
+    <div class="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 text-center">
+        <div class="text-4xl mb-3">📤</div>
+        <h3 class="font-fun text-xl font-bold mb-2">Upload facile</h3>
+        <p class="text-gray-600 text-sm">Parents et enfants peuvent tous les deux ajouter des dessins.</p>
+    </div>
+</div>
+{% endblock %}

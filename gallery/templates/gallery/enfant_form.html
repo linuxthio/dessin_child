@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == "creer" %}Ajouter un enfant{% else %}Modifier le profil{% endif %}{% endblock %}
+{% block content %}
+<div class="max-w-md mx-auto bg-white rounded-3xl shadow-sm border border-gray-100 p-8">
+    <h1 class="font-fun text-3xl font-bold text-indigo-700 mb-2 text-center">
+        {% if mode == "creer" %}Ajouter un enfant{% else %}Modifier {{ enfant.prenom }}{% endif %}
+    </h1>
+    {% if mode == "creer" %}
+        <p class="text-sm text-gray-500 text-center mb-6">Un code PIN à 4 chiffres sera généré automatiquement.</p>
+    {% else %}
+        <p class="text-sm text-gray-500 text-center mb-6">Code PIN actuel : <span class="font-mono tracking-widest">{{ enfant.pin_code }}</span></p>
+    {% endif %}
+    <form method="post" enctype="multipart/form-data" class="space-y-4">
+        {% csrf_token %}
+        {% for field in form %}
+            <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">{{ field.label }}</label>
+                {{ field }}
+                {% for error in field.errors %}<p class="text-xs text-red-600 mt-1">{{ error }}</p>{% endfor %}
+            </div>
+        {% endfor %}
+        <button type="submit" class="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow">
+            {% if mode == "creer" %}Créer le profil{% else %}Enregistrer{% endif %}
+        </button>
+    </form>
+    <a href="{% url 'gallery:dashboard_parent' %}" class="block text-center text-sm text-gray-500 mt-6 hover:underline">← Retour au tableau de bord</a>
+</div>
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Qui es-tu ?{% endblock %}
+{% block content %}
+<div class="text-center mb-10">
+    <h1 class="font-fun text-4xl font-extrabold text-amber-500">Qui est là ? 👋</h1>
+    <p class="text-lg text-gray-500 mt-2">Clique sur ton prénom pour te connecter !</p>
+</div>
+
+{% if enfants %}
+    <div class="flex flex-wrap justify-center gap-6">
+        {% for enfant in enfants %}
+            <form method="post" class="text-center">
+                {% csrf_token %}
+                <input type="hidden" name="enfant_id" value="{{ enfant.pk }}">
+                <button type="submit" class="flex flex-col items-center gap-2 group">
+                    {% if enfant.avatar %}
+                        <img src="{{ enfant.avatar.url }}" alt="{{ enfant.prenom }}"
+                             class="w-28 h-28 rounded-full object-cover border-4 border-amber-200 group-hover:border-amber-400 shadow-lg transition">
+                    {% else %}
+                        <div class="w-28 h-28 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-4xl font-fun font-extrabold border-4 border-amber-200 group-hover:border-amber-400 shadow-lg transition">
+                            {{ enfant.prenom|first|upper }}
+                        </div>
+                    {% endif %}
+                    <span class="font-fun text-xl font-bold text-gray-700 group-hover:text-amber-600">{{ enfant.prenom }}</span>
+                </button>
+            </form>
+        {% endfor %}
+    </div>
+{% else %}
+    <p class="text-center text-gray-500">Aucun profil enfant n'a encore été créé. Demande à un parent de t'ajouter !</p>
+{% endif %}
+
+<p class="text-center text-sm text-gray-400 mt-12">
+    Tu es un parent ? <a href="{% url 'gallery:login_parent' %}" class="text-indigo-600 font-semibold hover:underline">Connecte-toi ici</a>
+</p>
+{% endblock %}
