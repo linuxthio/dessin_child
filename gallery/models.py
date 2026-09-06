@@ -19,6 +19,24 @@ class Parent(AbstractUser):
         return self.email
 
 
+class ParentToken(models.Model):
+    """Jeton d'authentification pour l'espace parent côté API (mobile)."""
+
+    parent = models.OneToOneField(
+        Parent, on_delete=models.CASCADE, related_name="token"
+    )
+    key = models.CharField(max_length=40, unique=True, editable=False)
+    created = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        if not self.key:
+            self.key = secrets.token_hex(20)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Token de {self.parent.email}"
+
+
 def generer_pin_unique():
     """Génère un code PIN à 4 chiffres, unique parmi les enfants existants."""
     while True:

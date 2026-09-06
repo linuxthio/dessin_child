@@ -1,225 +1,377 @@
-from django.contrib.auth import authenticate
-from django.db.models import F
-from django.shortcuts import get_object_or_404
-from rest_framework import generics, status
-from rest_framework.authentication import TokenAuthentication
-from rest_framework.authtoken.models import Token
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.parsers import FormParser, MultiPartParser
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.views import APIView
+from typing import Annotated, Optional, Type
 
-from .api_auth import EnfantTokenAuthentication, IsEnfantAuthenticated
-from .models import Dessin, Enfant, EnfantToken, Parent
-from .serializers import (
-    DessinEnfantSerializer,
-    DessinPublicSerializer,
-    DessinSerializer,
-    EnfantPublicSerializer,
-    EnfantSerializer,
-    ParentRegisterSerializer,
-    ParentSerializer,
+from django.contrib.auth import authenticate
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.files.base import ContentFile
+from django.db import models as django_models
+from django.db.models import F
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+
+from .api_auth import get_current_enfant, get_current_parent, get_enfant_token, get_parent_token
+from .models import Dessin, Enfant, EnfantToken, Parent, ParentToken
+from .schemas import (
+    DessinEnfantOut,
+    DessinOut,
+    DessinPublicOut,
+    DessinUpdateIn,
+    EnfantLoginIn,
+    EnfantOut,
+    EnfantPublicOut,
+    EnfantTokenOut,
+    LoginIn,
+    ParentOut,
+    ParentRegisterIn,
+    TokenOut,
 )
+
+router = APIRouter()
+
+
+def _get_or_404(model: Type[django_models.Model], **kwargs) -> django_models.Model:
+    try:
+        return model.objects.get(**kwargs)
+    except model.DoesNotExist:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Introuvable.")
+
+
+def _file_url(file_field) -> Optional[str]:
+    return file_field.url if file_field else None
+
+
+def _parent_out(parent: Parent) -> ParentOut:
+    return ParentOut(id=parent.id, username=parent.username, email=parent.email)
+
+
+def _enfant_out(enfant: Enfant) -> EnfantOut:
+    return EnfantOut(
+        id=enfant.id,
+        prenom=enfant.prenom,
+        nom=enfant.nom,
+        date_naissance=enfant.date_naissance,
+        age=enfant.age,
+        avatar=_file_url(enfant.avatar),
+        pin_code=enfant.pin_code,
+        created_at=enfant.created_at,
+    )
+
+
+def _enfant_public_out(enfant: Enfant) -> EnfantPublicOut:
+    return EnfantPublicOut(id=enfant.id, prenom=enfant.prenom, avatar=_file_url(enfant.avatar))
+
+
+def _dessin_out(dessin: Dessin) -> DessinOut:
+    return DessinOut(
+        id=dessin.id,
+        titre=dessin.titre,
+        image=_file_url(dessin.image),
+        date_creation=dessin.date_creation,
+        description=dessin.description,
+        enfant=dessin.enfant_id,
+        enfant_prenom=dessin.enfant.prenom,
+        ajoute_par=dessin.ajoute_par,
+        note=dessin.note,
+        aime=dessin.aime,
+        created_at=dessin.created_at,
+    )
+
+
+def _dessin_enfant_out(dessin: Dessin) -> DessinEnfantOut:
+    return DessinEnfantOut(
+        id=dessin.id,
+        titre=dessin.titre,
+        image=_file_url(dessin.image),
+        date_creation=dessin.date_creation,
+        description=dessin.description,
+        ajoute_par=dessin.ajoute_par,
+        note=dessin.note,
+        aime=dessin.aime,
+        created_at=dessin.created_at,
+    )
+
+
+def _dessin_public_out(dessin: Dessin) -> DessinPublicOut:
+    return DessinPublicOut(
+        id=dessin.id,
+        titre=dessin.titre,
+        image=_file_url(dessin.image),
+        date_creation=dessin.date_creation,
+        enfant_prenom=dessin.enfant.prenom,
+        note=dessin.note,
+        aime=dessin.aime,
+        created_at=dessin.created_at,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Authentification Parent
 # ---------------------------------------------------------------------------
 
-class RegisterParentAPIView(APIView):
-    permission_classes = [AllowAny]
+@router.post("/auth/register/", response_model=TokenOut, status_code=status.HTTP_201_CREATED)
+def register_parent(payload: ParentRegisterIn):
+    if Parent.objects.filter(email__iexact=payload.email).exists():
+        raise HTTPException(422, "Cette adresse email est déjà utilisée.")
+    try:
+        validate_password(payload.password)
+    except DjangoValidationError as exc:
+        raise HTTPException(422, "; ".join(exc.messages))
 
-    def post(self, request):
-        serializer = ParentRegisterSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        parent = serializer.save()
-        token, _ = Token.objects.get_or_create(user=parent)
-        return Response(
-            {"token": token.key, "parent": ParentSerializer(parent).data},
-            status=status.HTTP_201_CREATED,
-        )
-
-
-class LoginParentAPIView(APIView):
-    permission_classes = [AllowAny]
-
-    def post(self, request):
-        email = request.data.get("email", "")
-        password = request.data.get("password", "")
-        parent = authenticate(request, username=email, password=password)
-        if parent is None:
-            return Response(
-                {"detail": "Email ou mot de passe incorrect."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-        token, _ = Token.objects.get_or_create(user=parent)
-        return Response({"token": token.key, "parent": ParentSerializer(parent).data})
+    parent = Parent.objects.create_user(
+        username=payload.username, email=payload.email, password=payload.password
+    )
+    token, _ = ParentToken.objects.get_or_create(parent=parent)
+    return TokenOut(token=token.key, parent=_parent_out(parent))
 
 
-class LogoutParentAPIView(APIView):
-    authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+@router.post("/auth/login/", response_model=TokenOut)
+def login_parent(payload: LoginIn):
+    parent = authenticate(username=payload.email, password=payload.password)
+    if parent is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Email ou mot de passe incorrect.")
+    token, _ = ParentToken.objects.get_or_create(parent=parent)
+    return TokenOut(token=token.key, parent=_parent_out(parent))
 
-    def post(self, request):
-        request.user.auth_token.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+
+@router.post("/auth/logout/", status_code=status.HTTP_204_NO_CONTENT)
+def logout_parent(token: Annotated[ParentToken, Depends(get_parent_token)]):
+    token.delete()
 
 
-class MeAPIView(APIView):
-    authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        return Response(ParentSerializer(request.user).data)
+@router.get("/auth/me/", response_model=ParentOut)
+def me(parent: Annotated[Parent, Depends(get_current_parent)]):
+    return _parent_out(parent)
 
 
 # ---------------------------------------------------------------------------
 # Enfants (gérés par le parent)
 # ---------------------------------------------------------------------------
 
-class EnfantListCreateAPIView(generics.ListCreateAPIView):
-    serializer_class = EnfantSerializer
-    authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        return Enfant.objects.filter(parent=self.request.user)
-
-    def perform_create(self, serializer):
-        serializer.save(parent=self.request.user)
+@router.get("/enfants/", response_model=list[EnfantOut])
+def list_enfants(parent: Annotated[Parent, Depends(get_current_parent)]):
+    return [_enfant_out(e) for e in Enfant.objects.filter(parent=parent)]
 
 
-class EnfantDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
-    serializer_class = EnfantSerializer
-    authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+@router.post("/enfants/", response_model=EnfantOut, status_code=status.HTTP_201_CREATED)
+def create_enfant(
+    parent: Annotated[Parent, Depends(get_current_parent)],
+    prenom: str = Form(...),
+    nom: str = Form(""),
+    date_naissance: Optional[str] = Form(None),
+    avatar: Optional[UploadFile] = File(None),
+):
+    enfant = Enfant(
+        prenom=prenom, nom=nom, date_naissance=date_naissance or None, parent=parent
+    )
+    if avatar is not None:
+        enfant.avatar.save(avatar.filename, ContentFile(avatar.file.read()), save=False)
+    enfant.save()
+    return _enfant_out(enfant)
 
-    def get_queryset(self):
-        return Enfant.objects.filter(parent=self.request.user)
+
+@router.get("/enfants/public/", response_model=list[EnfantPublicOut])
+def list_enfants_public():
+    return [_enfant_public_out(e) for e in Enfant.objects.all()]
 
 
-class EnfantPublicListAPIView(generics.ListAPIView):
-    """Liste publique (prénom + avatar) pour l'écran « Qui es-tu ? »."""
+@router.get("/enfants/{enfant_id}/", response_model=EnfantOut)
+def get_enfant(enfant_id: int, parent: Annotated[Parent, Depends(get_current_parent)]):
+    enfant = _get_or_404(Enfant, pk=enfant_id, parent=parent)
+    return _enfant_out(enfant)
 
-    queryset = Enfant.objects.all()
-    serializer_class = EnfantPublicSerializer
-    permission_classes = [AllowAny]
+
+@router.patch("/enfants/{enfant_id}/", response_model=EnfantOut)
+def update_enfant(
+    enfant_id: int,
+    parent: Annotated[Parent, Depends(get_current_parent)],
+    prenom: Optional[str] = Form(None),
+    nom: Optional[str] = Form(None),
+    date_naissance: Optional[str] = Form(None),
+    avatar: Optional[UploadFile] = File(None),
+):
+    enfant = _get_or_404(Enfant, pk=enfant_id, parent=parent)
+    if prenom is not None:
+        enfant.prenom = prenom
+    if nom is not None:
+        enfant.nom = nom
+    if date_naissance is not None:
+        enfant.date_naissance = date_naissance or None
+    if avatar is not None:
+        enfant.avatar.save(avatar.filename, ContentFile(avatar.file.read()), save=False)
+    enfant.save()
+    return _enfant_out(enfant)
+
+
+@router.delete("/enfants/{enfant_id}/", status_code=status.HTTP_204_NO_CONTENT)
+def delete_enfant(enfant_id: int, parent: Annotated[Parent, Depends(get_current_parent)]):
+    enfant = _get_or_404(Enfant, pk=enfant_id, parent=parent)
+    enfant.delete()
 
 
 # ---------------------------------------------------------------------------
 # Authentification Enfant (PIN)
 # ---------------------------------------------------------------------------
 
-class EnfantLoginAPIView(APIView):
-    permission_classes = [AllowAny]
+@router.post("/enfant/login/", response_model=EnfantTokenOut)
+def enfant_login(payload: EnfantLoginIn):
+    enfant = _get_or_404(Enfant, pk=payload.enfant_id)
+    if enfant.pin_code != payload.pin_code:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "PIN incorrect.")
 
-    def post(self, request):
-        enfant_id = request.data.get("enfant_id")
-        pin_code = str(request.data.get("pin_code", ""))
-        enfant = get_object_or_404(Enfant, pk=enfant_id)
-
-        if enfant.pin_code != pin_code:
-            return Response(
-                {"detail": "PIN incorrect."}, status=status.HTTP_401_UNAUTHORIZED
-            )
-
-        EnfantToken.objects.filter(enfant=enfant).delete()
-        token = EnfantToken.objects.create(enfant=enfant)
-        return Response(
-            {
-                "enfant_token": token.key,
-                "enfant": EnfantSerializer(enfant).data,
-            }
-        )
+    EnfantToken.objects.filter(enfant=enfant).delete()
+    token = EnfantToken.objects.create(enfant=enfant)
+    return EnfantTokenOut(enfant_token=token.key, enfant=_enfant_out(enfant))
 
 
-class EnfantLogoutAPIView(APIView):
-    authentication_classes = [EnfantTokenAuthentication]
-    permission_classes = [IsEnfantAuthenticated]
-
-    def post(self, request):
-        request.auth.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+@router.post("/enfant/logout/", status_code=status.HTTP_204_NO_CONTENT)
+def enfant_logout(token: Annotated[EnfantToken, Depends(get_enfant_token)]):
+    token.delete()
 
 
-class EnfantMeAPIView(APIView):
-    authentication_classes = [EnfantTokenAuthentication]
-    permission_classes = [IsEnfantAuthenticated]
-
-    def get(self, request):
-        return Response(EnfantSerializer(request.auth.enfant).data)
+@router.get("/enfant/me/", response_model=EnfantOut)
+def enfant_me(enfant: Annotated[Enfant, Depends(get_current_enfant)]):
+    return _enfant_out(enfant)
 
 
 # ---------------------------------------------------------------------------
 # Dessins côté Parent
 # ---------------------------------------------------------------------------
 
-class DessinListCreateAPIView(generics.ListCreateAPIView):
-    serializer_class = DessinSerializer
-    authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
-
-    def get_queryset(self):
-        qs = Dessin.objects.filter(enfant__parent=self.request.user).select_related(
-            "enfant"
-        )
-        enfant_id = self.request.query_params.get("enfant")
-        if enfant_id:
-            qs = qs.filter(enfant_id=enfant_id)
-        return qs
-
-    def perform_create(self, serializer):
-        enfant = serializer.validated_data["enfant"]
-        if enfant.parent_id != self.request.user.id:
-            raise PermissionDenied("Cet enfant ne vous appartient pas.")
-        serializer.save(ajoute_par="PARENT")
+@router.get("/dessins/", response_model=list[DessinOut])
+def list_dessins(
+    parent: Annotated[Parent, Depends(get_current_parent)], enfant: Optional[int] = None
+):
+    qs = Dessin.objects.filter(enfant__parent=parent).select_related("enfant")
+    if enfant:
+        qs = qs.filter(enfant_id=enfant)
+    return [_dessin_out(d) for d in qs]
 
 
-class DessinDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
-    serializer_class = DessinSerializer
-    authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+@router.post("/dessins/", response_model=DessinOut, status_code=status.HTTP_201_CREATED)
+def create_dessin(
+    parent: Annotated[Parent, Depends(get_current_parent)],
+    titre: str = Form(...),
+    image: UploadFile = File(...),
+    date_creation: str = Form(...),
+    description: str = Form(""),
+    enfant: int = Form(...),
+    note: Optional[int] = Form(None),
+    aime: bool = Form(False),
+):
+    if note is not None and not (1 <= note <= 5):
+        raise HTTPException(422, "La note doit être comprise entre 1 et 5.")
+    enfant_obj = _get_or_404(Enfant, pk=enfant)
+    if enfant_obj.parent_id != parent.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Cet enfant ne vous appartient pas.")
 
-    def get_queryset(self):
-        return Dessin.objects.filter(enfant__parent=self.request.user)
+    dessin = Dessin(
+        titre=titre,
+        date_creation=date_creation,
+        description=description,
+        enfant=enfant_obj,
+        ajoute_par="PARENT",
+        note=note,
+        aime=aime,
+    )
+    dessin.image.save(image.filename, ContentFile(image.file.read()), save=False)
+    dessin.save()
+    return _dessin_out(dessin)
 
 
-class DessinTopListAPIView(generics.ListAPIView):
-    """Top 5 des dessins (les mieux notés, puis les coups de cœur, puis les
-    plus récents), affiché sur l'écran d'accueil avant toute connexion."""
+@router.get("/dessins/top/", response_model=list[DessinPublicOut])
+def dessins_top():
+    qs = Dessin.objects.select_related("enfant").order_by(
+        F("note").desc(nulls_last=True), "-aime", "-created_at"
+    )[:5]
+    return [_dessin_public_out(d) for d in qs]
 
-    serializer_class = DessinPublicSerializer
-    permission_classes = [AllowAny]
 
-    def get_queryset(self):
-        return Dessin.objects.select_related("enfant").order_by(
-            F("note").desc(nulls_last=True), "-aime", "-created_at"
-        )[:5]
+@router.get("/dessins/{dessin_id}/", response_model=DessinOut)
+def get_dessin(dessin_id: int, parent: Annotated[Parent, Depends(get_current_parent)]):
+    dessin = _get_or_404(Dessin, pk=dessin_id, enfant__parent=parent)
+    return _dessin_out(dessin)
+
+
+@router.patch("/dessins/{dessin_id}/", response_model=DessinOut)
+def update_dessin(
+    dessin_id: int,
+    payload: DessinUpdateIn,
+    parent: Annotated[Parent, Depends(get_current_parent)],
+):
+    dessin = _get_or_404(Dessin, pk=dessin_id, enfant__parent=parent)
+    data = payload.model_dump(exclude_unset=True)
+    if "enfant" in data:
+        enfant_obj = _get_or_404(Enfant, pk=data.pop("enfant"), parent=parent)
+        dessin.enfant = enfant_obj
+    for field, value in data.items():
+        setattr(dessin, field, value)
+    dessin.save()
+    return _dessin_out(dessin)
+
+
+@router.delete("/dessins/{dessin_id}/", status_code=status.HTTP_204_NO_CONTENT)
+def delete_dessin(dessin_id: int, parent: Annotated[Parent, Depends(get_current_parent)]):
+    dessin = _get_or_404(Dessin, pk=dessin_id, enfant__parent=parent)
+    dessin.delete()
 
 
 # ---------------------------------------------------------------------------
 # Dessins côté Enfant
 # ---------------------------------------------------------------------------
 
-class EnfantDessinListCreateAPIView(generics.ListCreateAPIView):
-    serializer_class = DessinEnfantSerializer
-    authentication_classes = [EnfantTokenAuthentication]
-    permission_classes = [IsEnfantAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
-
-    def get_queryset(self):
-        return Dessin.objects.filter(enfant=self.request.auth.enfant)
-
-    def perform_create(self, serializer):
-        serializer.save(enfant=self.request.auth.enfant, ajoute_par="ENFANT")
+@router.get("/enfant/dessins/", response_model=list[DessinEnfantOut])
+def list_enfant_dessins(enfant: Annotated[Enfant, Depends(get_current_enfant)]):
+    return [_dessin_enfant_out(d) for d in Dessin.objects.filter(enfant=enfant)]
 
 
-class EnfantDessinDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
-    serializer_class = DessinEnfantSerializer
-    authentication_classes = [EnfantTokenAuthentication]
-    permission_classes = [IsEnfantAuthenticated]
+@router.post(
+    "/enfant/dessins/", response_model=DessinEnfantOut, status_code=status.HTTP_201_CREATED
+)
+def create_enfant_dessin(
+    enfant: Annotated[Enfant, Depends(get_current_enfant)],
+    titre: str = Form(...),
+    image: UploadFile = File(...),
+    date_creation: str = Form(...),
+    description: str = Form(""),
+    note: Optional[int] = Form(None),
+    aime: bool = Form(False),
+):
+    if note is not None and not (1 <= note <= 5):
+        raise HTTPException(422, "La note doit être comprise entre 1 et 5.")
+    dessin = Dessin(
+        titre=titre,
+        date_creation=date_creation,
+        description=description,
+        enfant=enfant,
+        ajoute_par="ENFANT",
+        note=note,
+        aime=aime,
+    )
+    dessin.image.save(image.filename, ContentFile(image.file.read()), save=False)
+    dessin.save()
+    return _dessin_enfant_out(dessin)
 
-    def get_queryset(self):
-        return Dessin.objects.filter(enfant=self.request.auth.enfant)
+
+@router.get("/enfant/dessins/{dessin_id}/", response_model=DessinEnfantOut)
+def get_enfant_dessin(dessin_id: int, enfant: Annotated[Enfant, Depends(get_current_enfant)]):
+    dessin = _get_or_404(Dessin, pk=dessin_id, enfant=enfant)
+    return _dessin_enfant_out(dessin)
+
+
+@router.patch("/enfant/dessins/{dessin_id}/", response_model=DessinEnfantOut)
+def update_enfant_dessin(
+    dessin_id: int,
+    payload: DessinUpdateIn,
+    enfant: Annotated[Enfant, Depends(get_current_enfant)],
+):
+    dessin = _get_or_404(Dessin, pk=dessin_id, enfant=enfant)
+    data = payload.model_dump(exclude_unset=True, exclude={"enfant"})
+    for field, value in data.items():
+        setattr(dessin, field, value)
+    dessin.save()
+    return _dessin_enfant_out(dessin)
+
+
+@router.delete("/enfant/dessins/{dessin_id}/", status_code=status.HTTP_204_NO_CONTENT)
+def delete_enfant_dessin(dessin_id: int, enfant: Annotated[Enfant, Depends(get_current_enfant)]):
+    dessin = _get_or_404(Dessin, pk=dessin_id, enfant=enfant)
+    dessin.delete()

@@ -1,44 +1,41 @@
-from rest_framework.authentication import BaseAuthentication, get_authorization_header
-from rest_framework.exceptions import AuthenticationFailed
-from rest_framework.permissions import BasePermission
+from typing import Annotated, Optional
 
-from .models import EnfantToken
+from fastapi import Depends, Header, HTTPException, status
 
-
-class EnfantTokenAuthentication(BaseAuthentication):
-    """Authentifie un enfant via l'en-tête `Authorization: Enfant-Token <clé>`.
-
-    En cas de succès, `request.user` reste anonyme et `request.auth` contient
-    l'objet EnfantToken (donc `request.auth.enfant` donne l'enfant connecté).
-    """
-
-    keyword = "Enfant-Token"
-
-    def authenticate(self, request):
-        auth = get_authorization_header(request).split()
-
-        if not auth or auth[0].decode().lower() != self.keyword.lower():
-            return None
-
-        if len(auth) != 2:
-            raise AuthenticationFailed("En-tête d'authentification invalide.")
-
-        try:
-            key = auth[1].decode()
-        except UnicodeError:
-            raise AuthenticationFailed("En-tête d'authentification invalide.")
-
-        try:
-            token = EnfantToken.objects.select_related("enfant").get(key=key)
-        except EnfantToken.DoesNotExist:
-            raise AuthenticationFailed("Jeton enfant invalide ou expiré.")
-
-        return (None, token)
-
-    def authenticate_header(self, request):
-        return self.keyword
+from .models import Enfant, EnfantToken, Parent, ParentToken
 
 
-class IsEnfantAuthenticated(BasePermission):
-    def has_permission(self, request, view):
-        return bool(request.auth) and hasattr(request.auth, "enfant")
+def get_parent_token(
+    authorization: Annotated[Optional[str], Header()] = None,
+) -> ParentToken:
+    """Authentifie un parent via l'en-tête `Authorization: Token <clé>`."""
+    parts = (authorization or "").split()
+    if len(parts) != 2 or parts[0].lower() != "token":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Authentification requise.")
+    try:
+        return ParentToken.objects.select_related("parent").get(key=parts[1])
+    except ParentToken.DoesNotExist:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Jeton invalide.")
+
+
+def get_current_parent(token: Annotated[ParentToken, Depends(get_parent_token)]) -> Parent:
+    return token.parent
+
+
+def get_enfant_token(
+    authorization: Annotated[Optional[str], Header()] = None,
+) -> EnfantToken:
+    """Authentifie un enfant via l'en-tête `Authorization: Enfant-Token <clé>`."""
+    parts = (authorization or "").split()
+    if len(parts) != 2 or parts[0].lower() != "enfant-token":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Authentification requise.")
+    try:
+        return EnfantToken.objects.select_related("enfant").get(key=parts[1])
+    except EnfantToken.DoesNotExist:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Jeton enfant invalide ou expiré."
+        )
+
+
+def get_current_enfant(token: Annotated[EnfantToken, Depends(get_enfant_token)]) -> Enfant:
+    return token.enfant
