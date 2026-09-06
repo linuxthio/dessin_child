@@ -12,6 +12,29 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 
 from pathlib import Path
 
+import os
+import environ
+
+# Initialisation deenviron
+env = environ.Env(
+    # Définissez les types et les valeurs par défaut si nécessaire
+    DEBUG=(bool, False)
+)
+
+# Indiquez le chemin vers le dossier contenant le fichier .env (généralement à la racine du projet)
+environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
+
+# --- Utilisation des variables ---
+
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = env('DEBUG')
+
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = env('SECRET_KEY')
+
+# ALLOWED_HOSTS
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS')
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -20,14 +43,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-em5g@u8*6(lpu3!7!t%8h3(!#p4!%7)&7bo#zq^ij1_*uh0v)w'
+# SECRET_KEY = 'django-insecure-em5g@u8*6(lpu3!7!t%8h3(!#p4!%7)&7bo#zq^ij1_*uh0v)w'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# DEBUG = True
 
 # '*' pour le développement uniquement, afin que l'émulateur/appareil Android
 # (accédant au serveur via 10.0.2.2 ou une IP locale) puisse joindre l'API.
-ALLOWED_HOSTS = ['*']
+# ALLOWED_HOSTS = ['*']
 
 
 # Application definition
